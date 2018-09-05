@@ -1,4 +1,5 @@
 ##功能介绍
+
 基于https://github.com/suifeng3051/hdfs-to-ftp.git 进行修改
 本工具的作用是将hdfs文件数据直接上传到ftp服务器，避免了传统方式先get数据到本地再上传到ftp。本工具可配合hdfs-over-ftp工具一起使用，实现两个集群之间的数据传递，hdfs-over-ftp工具地址：https://github.com/iponweb/hdfs-over-ftp
 
