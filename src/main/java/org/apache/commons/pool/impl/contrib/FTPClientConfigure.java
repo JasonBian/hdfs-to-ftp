@@ -1,9 +1,12 @@
 package org.apache.commons.pool.impl.contrib;
 
 /**
- * FTPClient配置类，封装了FTPClient的相关配置
  * 
- * @author heaven
+* @ClassName: FTPClientConfigure 
+* @Description: FTPClient配置类，封装了FTPClient的相关配置 
+* @author bianzexin 
+* @date 2018年7月11日 下午1:56:47 
+*
  */
 public class FTPClientConfigure {
 	private String host;

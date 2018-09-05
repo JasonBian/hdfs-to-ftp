@@ -1,8 +1,6 @@
 package com.hdfstoftp.main;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 
 /**
  * Licensed to the ctyun,this can be only used in ctyun company
@@ -15,6 +13,7 @@ import java.net.URISyntaxException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -45,10 +44,12 @@ import com.hdfstoftp.config.Config;
 import com.hdfstoftp.service.UploadFileTask;
 
 /**
- * 直接拷贝hdfs中的文件到ftp文件系统方法
  * 
- * @author 王厚达
- * @mail wanghouda@126.com
+ * @ClassName: HdfsToFtp
+ * @Description: 直接拷贝hdfs中的文件到ftp文件系统方法
+ * @author bianzexin
+ * @date 2018年7月11日 上午11:38:41
+ *
  */
 public class HdfsToFtp {
 
@@ -56,7 +57,6 @@ public class HdfsToFtp {
 	 * 获取日志记录对象
 	 */
 	private static final Logger logger = LoggerFactory.getLogger("file");
-	private static final Logger logger_failed = LoggerFactory.getLogger("failed");
 
 	/**
 	 * 静态退出方法
@@ -77,9 +77,7 @@ public class HdfsToFtp {
 	 */
 
 	public static void main(String[] args) throws IOException, ParseException {
-		args = new String[] { "D:/input", "/home/heaven/whd", "-c d:/conf/hdfs-to-ftp.properties", "-t 20150820000000", "-r .*bak.*","-o false" };
-		// args = new String[] { "d:/failed", "/home/heaven/whd" };
-
+//		args = new String[] { "/Users/bianzexin/Downloads/Avro/csvtest", "/Users/bianzexin/Downloads/Avro/csvtest/", "-c /Users/bianzexin/Documents/workspace/hdfs-to-ftp/src/main/resources/conf/hdfs-to-ftp.properties"};
 		try {
 			logger.info("your input param is=" + Arrays.toString(args));
 			Config config = new Config(args);
@@ -89,6 +87,41 @@ public class HdfsToFtp {
 			e.printStackTrace();
 		} catch (Exception e) {
 			e.printStackTrace();
+		}
+	}
+	
+	/** 
+     * 递归创建远程服务器目录  
+     * @param remote 远程服务器文件绝对路径  
+     * @param ftpClient FTPClient 对象  
+     * @return 目录创建是否成功  
+     * @throws IOException  
+     */  
+	private static void createDirecroty(String remote, FTPClient ftpClient) throws IOException {
+		String directory = remote.substring(0, remote.lastIndexOf("/") + 1);
+		if (!directory.equalsIgnoreCase("/")
+				&& !ftpClient.changeWorkingDirectory(new String(directory.getBytes("utf-8"), "utf-8"))) {
+			// 如果远程目录不存在，则递归创建远程服务器目录
+			int start = 0;
+			int end = 0;
+			start = directory.startsWith("/") ? 1 : 0;
+			end = directory.indexOf("/", start);
+			while (true) {
+				String subDirectory = new String(remote.substring(start, end).getBytes("utf-8"), "utf-8");
+				if (!ftpClient.changeWorkingDirectory(subDirectory)) {
+					if (ftpClient.makeDirectory(subDirectory)) {
+						ftpClient.changeWorkingDirectory(subDirectory);
+					} else {
+						logger.error("创建目录失败," + remote);
+					}
+				}
+				start = end + 1;
+				end = directory.indexOf("/", start);
+				// 检查所有目录是否创建完毕
+				if (end <= start) {
+					break;
+				}
+			}
 		}
 	}
 
@@ -134,14 +167,16 @@ public class HdfsToFtp {
 			FTPClientPool ftpPool = new FTPClientPool(threadNum, new FtpClientFactory(config.getFTPClientConfig()));
 			FTPClient ftpClient = ftpPool.borrowObject();
 			// 创建一个目标目录（如果乙存在默认不创建）
-			ftpClient.makeDirectory(dstPath);
+			createDirecroty(dstPath, ftpClient);
+//			ftpClient.makeDirectory(dstPath);
 			ftpPool.returnObject(ftpClient);
 			// 列出源目录中的文件信息
 			FileStatus contents[] = srcFS.listStatus(src);
 			long beginFilter = 0;
 			long endFileter = 0;
 
-			if (config.getCommandLine().hasOption("d") || config.getCommandLine().hasOption("h") || config.getCommandLine().hasOption("t")) {// 若不是以"["开头，则表示时间段
+			if (config.getCommandLine().hasOption("d") || config.getCommandLine().hasOption("h")
+					|| config.getCommandLine().hasOption("t")) {// 若不是以"["开头，则表示时间段
 				beginFilter = System.currentTimeMillis();
 				Long[] timeRange = parseTimeRange(config.getCommandLine());
 				contents = getNewContents(timeRange, contents);
@@ -167,21 +202,29 @@ public class HdfsToFtp {
 				endSkip = System.currentTimeMillis();
 			}
 			int skiped = 0;
-
+			
 			List<Future<?>> futureList = new ArrayList<Future<?>>();
+			Arrays.sort(contents, Collections.reverseOrder());
+			Map<String, Path> successFileMap = new HashMap<String, Path>();
 			for (int i = 0; i < contents.length; i++) {
+				logger.info("start to process file:" + contents[i].getPath().getName());
+				if (("_SUCCESS").equals(contents[i].getPath().getName())) {
+					successFileMap.put("success", contents[i].getPath());
+					continue;
+				}
 				if (!overwrite && fileNameMap.containsKey(contents[i].getPath().getName())) {
 					// 跳过已存在的文件
 					skiped++;
-					Log.info("skiped filename:" + contents[i].getPath().getName());
+					logger.info("skiped filename:" + contents[i].getPath().getName());
 					continue;
 				}
 				if (contents[i].isDirectory()) {
 					continue;
 				}
 				// 用多线程的方式拷贝源文件到目标路径
-				Future<?> future = threadPool
-						.submit(new UploadFileTask(srcFS, contents[i].getPath(), new Path(dstPath, contents[i].getPath().getName()), ftpPool, false, isRename, subDir, retryTimes));
+				Future<?> future = threadPool.submit(new UploadFileTask(srcFS, contents[i].getPath(),
+						new Path(dstPath, contents[i].getPath().getName()), ftpPool, false, isRename, subDir,
+						retryTimes));
 				futureList.add(future);
 			}
 			int transfered = 0;
@@ -198,6 +241,18 @@ public class HdfsToFtp {
 					logger.error("failed transter:" + failed + " files");
 				}
 			}
+			if (successFileMap!= null && successFileMap.containsKey("success")) {
+				Path successPath = successFileMap.get("success");
+				Future<?> future = threadPool.submit(new UploadFileTask(srcFS, successPath,
+						new Path(dstPath, successPath.getName()), ftpPool, false, isRename, subDir,
+						retryTimes));
+				Boolean result = (Boolean) future.get();
+				if (result) {
+					logger.info("have transfered _SUCCESS file");
+				} else {
+					logger.info("transfered _SUCCESS file error");
+				}
+			}
 			// 关闭线程池
 			threadPool.shutdown();
 			// 关闭FTPCient连接池
@@ -208,52 +263,33 @@ public class HdfsToFtp {
 				logger.info("skip time:" + (endSkip - beginSkip) + " ms");
 			}
 			logger.info("total file count:" + contents.length);
-			logger.info("total transtered: " + transfered + ",total failed:" + failed+",total skiped:"+skiped);
-			
+			logger.info("total transtered: " + transfered + ",total failed:" + failed + ",total skiped:" + skiped);
 
 		} else {// 若是文件，直接上传
-
-			BufferedReader reader = null;
 			FtpClientFactory facotry = new FtpClientFactory(config.getFTPClientConfig());
 			FTPClient ftpClient = null;
 			InputStream in = null;
+			boolean reply = false;
 			try {
 				Path path = fileStatus.getPath();
-				if (!path.getName().contains("log")) {
-
-				}
-				reader = new BufferedReader(new FileReader(new File(path.toUri().getPath())));
-				String str = null;
-
+				in = srcFS.open(path);
 				ftpClient = facotry.makeObject();
-
-				while ((str = reader.readLine()) != null) {
-					String[] feilds = str.split("&");
-					Path filePath = null;
-					if (feilds.length == 2 && feilds[1] != "") {
-						filePath = new Path(feilds[1]);
-						in = srcFS.open(filePath);
-						boolean result = ftpClient.storeFile(dstPath, in);
-						System.out.println(ftpClient.getReplyCode());
-						if (result) {
-							logger.info(filePath.toString());
-						} else {
-							logger_failed.info(filePath.toString());
-						}
-					} else {
-						continue;
+				createDirecroty(dstPath, ftpClient);
+				int tryedTimes = 0;
+				while (!reply && (tryedTimes <= retryTimes)) {
+					reply = ftpClient.storeFile(dstPath + File.separator + path.getName(), in);
+					if (tryedTimes > 0) {
+						Thread.sleep(100 * tryedTimes);
+						logger.warn("retryed times:" + tryedTimes + " return Info:" + ftpClient.getReplyString());
 					}
-
+					tryedTimes++;
 				}
 			} catch (Exception e) {
 				e.printStackTrace();
-
 			} finally {
 				in.close();
-				reader.close();
 				facotry.destroyObject(ftpClient);
 			}
-
 		}
 		long end = System.currentTimeMillis();
 		logger.info("finished transfer,total time:" + (end - start) / 1000 + "s");
@@ -298,7 +334,8 @@ public class HdfsToFtp {
 	 * @throws IllegalStateException
 	 * @throws NoSuchElementException
 	 */
-	public static Map<String, String> getFileNameMap(String path, FTPClientPool ftpPool) throws NoSuchElementException, IllegalStateException, Exception {
+	public static Map<String, String> getFileNameMap(String path, FTPClientPool ftpPool)
+			throws NoSuchElementException, IllegalStateException, Exception {
 		Map<String, String> fileNameMap = new HashMap<String, String>();
 		FTPClient client = ftpPool.borrowObject();
 		FTPFile[] files = client.listFiles(path);

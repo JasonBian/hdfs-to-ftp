@@ -11,8 +11,12 @@ import org.apache.commons.pool.ObjectPool;
 import org.apache.commons.pool.PoolableObjectFactory;
 
 /**
- * 实现了一个FTPClient连接池
- * @author heaven
+ * 
+* @ClassName: FTPClientPool 
+* @Description: FTPClient连接池
+* @author bianzexin 
+* @date 2018年7月11日 下午1:59:43 
+*
  */
 public class FTPClientPool implements ObjectPool<FTPClient>{
 	private static final int DEFAULT_POOL_SIZE = 10;

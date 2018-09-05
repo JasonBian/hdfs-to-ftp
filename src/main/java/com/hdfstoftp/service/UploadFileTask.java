@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.net.ftp.FTPClient;
+import org.apache.commons.net.ftp.FTPFile;
 import org.apache.commons.pool.impl.contrib.FTPClientPool;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -14,11 +15,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * 具体执行上传文件动作的任务线程
- * @author heaven
+ * 
+ * @ClassName: UploadFileTask
+ * @Description: 具体执行上传文件动作的任务线程
+ * @author bianzexin
+ * @date 2018年7月11日 下午1:55:42
  *
  */
-public class UploadFileTask implements Callable<Boolean>{
+public class UploadFileTask implements Callable<Boolean> {
 	private static final Logger logger = LoggerFactory.getLogger("file");
 	private static final Logger logger_failed = LoggerFactory.getLogger("failed");
 	private FileSystem srcFS;
@@ -26,70 +30,98 @@ public class UploadFileTask implements Callable<Boolean>{
 	private Path dst;
 	private boolean deleteSource;
 	private FTPClientPool ftpClientPool;
-	private boolean isRename=false;
+	private boolean isRename = false;
 	private String subDir;
 	private int retryTimes;
-	
-	public UploadFileTask(FileSystem srcFS, Path src, Path dst, FTPClientPool ftpClientPool, boolean deleteSource,boolean isRename,String subDir,int retryTimes){
-		this.srcFS=srcFS;
-		this.src=src;
-		this.dst=dst;
-		this.ftpClientPool=ftpClientPool;
-		this.deleteSource=deleteSource;
-		this.isRename=isRename;
-		this.subDir=subDir;
-		this.retryTimes=retryTimes;
+
+	public UploadFileTask(FileSystem srcFS, Path src, Path dst, FTPClientPool ftpClientPool, boolean deleteSource,
+			boolean isRename, String subDir, int retryTimes) {
+		this.srcFS = srcFS;
+		this.src = src;
+		this.dst = dst;
+		this.ftpClientPool = ftpClientPool;
+		this.deleteSource = deleteSource;
+		this.isRename = isRename;
+		this.subDir = subDir;
+		this.retryTimes = retryTimes;
 	}
 
 	public Boolean call() throws Exception {
-		boolean reply=false;
+		boolean reply = false;
 		InputStream in = null;
 		try {
 			try {
-				//上传文件部分
+				// 上传文件部分
+				long localSize = srcFS.getFileStatus(src).getLen();
 				in = srcFS.open(src);
-				FTPClient client= ftpClientPool.borrowObject();
-				int tryedTimes=0;
-				while(!reply&&(tryedTimes<=retryTimes)){
-					reply=client.storeFile(dst.toString(),in);
-					if(tryedTimes>0){
-						Thread.sleep(100*tryedTimes);
-						logger.warn("retryed times:"+tryedTimes+" return Info:"+client.getReplyString());
+				FTPClient client = ftpClientPool.borrowObject();
+				int tryedTimes = 0;
+				FTPFile[] ftpFiles = client.listFiles(dst.toString());
+				if (ftpFiles != null && ftpFiles.length > 0) {
+					long remoteSize = ftpFiles[0].getSize();
+					if (remoteSize == localSize) {
+						logger.info(src.getName() + " remote size equal local size");
+						ftpClientPool.returnObject(client);
+						return true;
+					} else if (remoteSize > localSize) {
+						logger.info(src.getName() + " remote size bigger than local size");
+						ftpClientPool.returnObject(client);
+						return true;
 					}
-					tryedTimes++;
+					while (!reply && (tryedTimes <= retryTimes)) {
+						if (in.skip(remoteSize) == remoteSize) {
+							client.setRestartOffset(remoteSize);
+							reply = client.storeFile(dst.toString(), in);
+						}
+						if (tryedTimes > 0) {
+							Thread.sleep(100 * tryedTimes);
+							logger.warn("retryed times:" + tryedTimes + " return Info:" + client.getReplyString());
+						}
+						tryedTimes++;
+					}
+					ftpClientPool.returnObject(client);
+				} else {
+					while (!reply && (tryedTimes <= retryTimes)) {
+						reply = client.storeFile(dst.toString(), in);
+						if (tryedTimes > 0) {
+							Thread.sleep(100 * tryedTimes);
+							logger.warn("retryed times:" + tryedTimes + " return Info:" + client.getReplyString());
+						}
+						tryedTimes++;
+					}
+					ftpClientPool.returnObject(client);
 				}
-				ftpClientPool.returnObject(client);;
 			} catch (IOException e) {
 				IOUtils.closeStream(in);
 				throw e;
-			} 
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
-		} finally{	
+		} finally {
 			try {
 				in.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
-		
-		if(reply){
-			//若上传成功
-			if(isRename){
-				//把上传成功后的文件rename到日期子目录
-				Path renamePath=new Path(src.getParent()+File.separator+subDir,src.getName());
-				boolean result=srcFS.rename(src, renamePath);
-				logger.info(renamePath.toString()+" "+result);
-			}else{
+
+		if (reply) {
+			// 若上传成功
+			if (isRename) {
+				// 把上传成功后的文件rename到日期子目录
+				Path renamePath = new Path(src.getParent() + File.separator + subDir, src.getName());
+				boolean result = srcFS.rename(src, renamePath);
+				logger.info(renamePath.toString() + " " + result);
+			} else {
 				logger.info(src.toString());
 			}
-		}else{
-			//若上传失败
-			logger_failed.info("&"+src.toString());
+		} else {
+			// 若上传失败
+			logger_failed.info("&" + src.toString());
 		}
 		if (deleteSource) {
-			 srcFS.delete(src, true);
-		} 
+			srcFS.delete(src, true);
+		}
 		return reply;
 	}
 

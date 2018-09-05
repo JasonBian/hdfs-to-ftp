@@ -3,8 +3,12 @@ package com.hdfstoftp.util;
 import java.io.IOException;
 
 /**
- * 自定义异常类，FTPClient异常
- * @author heaven
+ * 
+* @ClassName: FTPClientException 
+* @Description: 自定义异常类，FTPClient异常 
+* @author bianzexin 
+* @date 2018年7月11日 下午1:56:23 
+*
  */
 public class FTPClientException extends Exception {
 

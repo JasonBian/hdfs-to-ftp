@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPReply;
+import org.apache.commons.net.ftp.FTPSClient;
 import org.apache.commons.pool.PoolableObjectFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,8 +12,12 @@ import org.slf4j.LoggerFactory;
 import com.hdfstoftp.util.FTPClientException;
 
 /**
- * FTPClient工厂类，通过FTPClient工厂提供FTPClient实例的创建和销毁
- * @author heaven
+ * 
+* @ClassName: FtpClientFactory 
+* @Description: FTPClient工厂类，通过FTPClient工厂提供FTPClient实例的创建和销毁 
+* @author bianzexin 
+* @date 2018年7月11日 下午1:59:06 
+*
  */
 public class FtpClientFactory implements PoolableObjectFactory<FTPClient> {
 	private static Logger logger = LoggerFactory.getLogger("file");
@@ -25,7 +30,8 @@ public class FtpClientFactory implements PoolableObjectFactory<FTPClient> {
 	 * @see org.apache.commons.pool.PoolableObjectFactory#makeObject()
 	 */
 	public FTPClient makeObject() throws Exception {
-		FTPClient ftpClient = new FTPClient();
+//		FTPClient ftpClient = new FTPClient();
+		FTPClient ftpClient = new FTPSClient(false);
 		ftpClient.setConnectTimeout(config.getClientTimeout());
 		try {
 			ftpClient.connect(config.getHost(), config.getPort());
